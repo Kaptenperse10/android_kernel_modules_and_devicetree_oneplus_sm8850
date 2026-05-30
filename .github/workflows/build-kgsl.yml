@@ -214,26 +214,22 @@ jobs:
       - name: Build msm_kgsl.ko (sun_perf)
         run: |
           cd kernel_platform/msm-kernel
-          # Check for WORKSPACE file and create if missing
-          ls WORKSPACE 2>/dev/null || ls MODULE.bazel 2>/dev/null || touch WORKSPACE
-          # Find and show all bazelrc files for debugging
-          echo "=== Searching for bazelrc files ==="
-          find ../.. -name "*.bazelrc" -o -name ".bazelrc" 2>/dev/null | head -20
-          echo "=== HOME bazelrc ==="
-          cat ~/.bazelrc 2>/dev/null || echo "none"
-          echo "=== Patching all bazelrc files ==="
-          find ../.. -name "*.bazelrc" -o -name ".bazelrc" 2>/dev/null |             while read f; do
-              if grep -q "flag_alias" "$f" 2>/dev/null; then
-                echo "Patching: $f"
-                sed -i '/flag_alias/d' "$f"
-              fi
-            done
-          # Also patch HOME bazelrc if it exists
-          [ -f ~/.bazelrc ] && sed -i '/flag_alias/d' ~/.bazelrc || true
-          # Move output root outside repo to avoid cache-inside-repo warning
+          # Show bazelrc for debugging
+          echo "=== .bazelrc ===" && cat .bazelrc 2>/dev/null | grep -i bzlmod || echo "no bzlmod in bazelrc"
+          # Strip enable_bzlmod from bazelrc files
+          find . ../.. -name ".bazelrc" -o -name "*.bazelrc" 2>/dev/null | while read f; do
+            sed -i '/bzlmod/d' "$f" && echo "Stripped bzlmod from $f"
+          done || true
+          # Create minimal MODULE.bazel so bzlmod has nothing to resolve
+          echo "bW9kdWxlKG5hbWUgPSAibXNtX2tlcm5lbCIsIHZlcnNpb24gPSAiMCIpCg==" | base64 -d > MODULE.bazel
           mkdir -p /tmp/bazel_output /tmp/bazel_repo_cache
-          # Run bazel
-          ../tools/bazel             --output_user_root=/tmp/bazel_output             run             --noenable_bzlmod             --repo_contents_cache=/tmp/bazel_repo_cache             --//msm-kernel:skip_abi=true             //vendor/qcom/opensource/graphics-kernel:sun_perf_msm_kgsl_dist             -- --dist_dir=../../out/graphics-kernel
+          ../tools/bazel \
+            --output_user_root=/tmp/bazel_output \
+            run \
+            --repo_contents_cache=/tmp/bazel_repo_cache \
+            --//msm-kernel:skip_abi=true \
+            //vendor/qcom/opensource/graphics-kernel:sun_perf_msm_kgsl_dist \
+            -- --dist_dir=../../out/graphics-kernel
 
       # ── 9. Collect and upload artifact ────────────────────────────────
       - name: Collect build artifacts
