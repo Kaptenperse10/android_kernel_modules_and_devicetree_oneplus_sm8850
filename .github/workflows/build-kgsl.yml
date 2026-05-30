@@ -216,10 +216,12 @@ jobs:
           cd kernel_platform/msm-kernel
           # Show bazelrc for debugging
           echo "=== .bazelrc ===" && cat .bazelrc 2>/dev/null | grep -i bzlmod || echo "no bzlmod in bazelrc"
-          # Strip enable_bzlmod from bazelrc files
-          find . ../.. -name ".bazelrc" -o -name "*.bazelrc" 2>/dev/null | while read f; do
-            sed -i '/bzlmod/d' "$f" && echo "Stripped bzlmod from $f"
+          # Strip incompatible flag_alias from all bazelrc files
+          find ../.. -name "*.bazelrc" 2>/dev/null | while read f; do
+            [ -f "$f" ] && sed -i '/flag_alias/d' "$f" && echo "Patched $f"
           done || true
+          # Also patch the known offending file directly
+          sed -i '/flag_alias/d' ../build/kernel/kleaf/common.bazelrc 2>/dev/null || true
           # Create minimal MODULE.bazel so bzlmod has nothing to resolve
           echo "bW9kdWxlKG5hbWUgPSAibXNtX2tlcm5lbCIsIHZlcnNpb24gPSAiMCIpCg==" | base64 -d > MODULE.bazel
           mkdir -p /tmp/bazel_output /tmp/bazel_repo_cache
