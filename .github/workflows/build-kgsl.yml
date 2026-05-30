@@ -188,16 +188,15 @@ jobs:
       # ── 7. Download Bazel ──────────────────────────────────────────────
       - name: Set up Bazel
         run: |
-          # Use the bazel wrapper already present in the kernel platform
-          chmod +x kernel_platform/tools/bazel || true
-          # Fallback: install bazelisk
-          if ! kernel_platform/tools/bazel version 2>/dev/null; then
-            mkdir -p "$HOME/bin"
-            curl -Lo "$HOME/bin/bazel" \
-              https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
-            chmod +x "$HOME/bin/bazel"
-            echo "$HOME/bin" >> $GITHUB_PATH
-          fi
+          # Install bazelisk
+          mkdir -p "$HOME/bin"
+          curl -Lo "$HOME/bin/bazel"             https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
+          chmod +x "$HOME/bin/bazel"
+          echo "$HOME/bin" >> $GITHUB_PATH
+          # Create py3-cmd stub so the bazel wrapper script doesn't fail
+          mkdir -p kernel_platform/prebuilts/build-tools/linux_musl-x86/bin
+          printf '#!/bin/bash\nexec python3 "$@"\n'             > kernel_platform/prebuilts/build-tools/linux_musl-x86/bin/py3-cmd
+          chmod +x kernel_platform/prebuilts/build-tools/linux_musl-x86/bin/py3-cmd
 
       # ── 8. Build msm_kgsl.ko via Bazel ────────────────────────────────
       - name: Build msm_kgsl.ko (sun_perf)
