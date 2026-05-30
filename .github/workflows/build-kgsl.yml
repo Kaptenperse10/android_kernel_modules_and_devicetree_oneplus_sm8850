@@ -233,7 +233,7 @@ jobs:
           # Move output root outside repo to avoid cache-inside-repo warning
           mkdir -p /tmp/bazel_output /tmp/bazel_repo_cache
           # Run bazel
-          ../tools/bazel             --output_user_root=/tmp/bazel_output             --noenable_bzlmod             run             --repo_contents_cache=/tmp/bazel_repo_cache             --//msm-kernel:skip_abi=true             //vendor/qcom/opensource/graphics-kernel:sun_perf_msm_kgsl_dist             -- --dist_dir=../../out/graphics-kernel
+          ../tools/bazel             --output_user_root=/tmp/bazel_output             run             --noenable_bzlmod             --repo_contents_cache=/tmp/bazel_repo_cache             --//msm-kernel:skip_abi=true             //vendor/qcom/opensource/graphics-kernel:sun_perf_msm_kgsl_dist             -- --dist_dir=../../out/graphics-kernel
 
       # ── 9. Collect and upload artifact ────────────────────────────────
       - name: Collect build artifacts
