@@ -201,13 +201,15 @@ jobs:
       # ── 8. Build msm_kgsl.ko via Bazel ────────────────────────────────
       - name: Build msm_kgsl.ko (sun_perf)
         run: |
-          cd kernel_platform
-          # Target: //vendor/qcom/opensource/graphics-kernel:sun_perf_msm_kgsl_dist
-          ./tools/bazel run \
+          cd kernel_platform/msm-kernel
+          # Check for WORKSPACE file and create if missing
+          ls WORKSPACE 2>/dev/null || ls MODULE.bazel 2>/dev/null || touch WORKSPACE
+          # Run bazel from msm-kernel root where the workspace is defined
+          ../tools/bazel run \
             --//msm-kernel:skip_abi=true \
             --user_kmi_symbol_lists=//msm-kernel:android/abi_gki_aarch64_qcom \
             //vendor/qcom/opensource/graphics-kernel:sun_perf_msm_kgsl_dist \
-            -- --dist_dir=../out/graphics-kernel
+            -- --dist_dir=../../out/graphics-kernel
 
       # ── 9. Collect and upload artifact ────────────────────────────────
       - name: Collect build artifacts
