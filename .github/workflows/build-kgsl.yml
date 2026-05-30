@@ -229,6 +229,7 @@ jobs:
             --output_user_root=/tmp/bazel_output \
             run \
             --repo_contents_cache=/tmp/bazel_repo_cache \
+            --registry=https://bcr.bazel.build \
             --//msm-kernel:skip_abi=true \
             //vendor/qcom/opensource/graphics-kernel:sun_perf_msm_kgsl_dist \
             -- --dist_dir=../../out/graphics-kernel
