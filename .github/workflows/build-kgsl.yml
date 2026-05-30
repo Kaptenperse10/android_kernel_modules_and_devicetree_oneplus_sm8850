@@ -48,23 +48,33 @@ jobs:
       - name: Build kernel to get Module.symvers
         run: |
           cd kernel/msm-kernel
-          echo "=== Available defconfigs ==="
-          ls arch/arm64/configs/ | grep -i "sun\|8850\|niobe\|gki" || true
+          echo "=== All defconfigs ==="
+          ls arch/arm64/configs/
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export CC=aarch64-linux-gnu-gcc
-          # Try known defconfig names in order
+          # Try every possible name for SM8850/sun defconfig
           CFG=""
-          for c in vendor/sun_GKI_defconfig sun_GKI_defconfig vendor/sun_defconfig sun_defconfig gki_defconfig; do
+          for c in \
+            vendor/sun_GKI_defconfig \
+            sun_GKI_defconfig \
+            vendor/sun_defconfig \
+            sun_defconfig \
+            vendor/niobe_GKI_defconfig \
+            niobe_GKI_defconfig \
+            vendor/niobe_defconfig \
+            niobe_defconfig \
+            gki_defconfig; do
             if [ -f "arch/arm64/configs/$c" ]; then
               CFG=$c
+              echo "Found defconfig: $CFG"
               break
             fi
           done
           if [ -z "$CFG" ]; then
-            CFG=$(ls arch/arm64/configs/ | grep -i sun | head -1)
+            echo "No matching defconfig found, using first available:"
+            CFG=$(ls arch/arm64/configs/ | head -1)
+            echo "$CFG"
           fi
-          echo "Using: $CFG"
           make O=../out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- $CFG
           make -j$(nproc) O=../out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules_prepare
 
