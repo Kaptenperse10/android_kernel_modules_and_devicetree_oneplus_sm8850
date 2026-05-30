@@ -197,6 +197,10 @@ jobs:
           mkdir -p kernel_platform/prebuilts/build-tools/linux_musl-x86/bin
           printf '#!/bin/bash\nexec python3 "$@"\n'             > kernel_platform/prebuilts/build-tools/linux_musl-x86/bin/py3-cmd
           chmod +x kernel_platform/prebuilts/build-tools/linux_musl-x86/bin/py3-cmd
+          # Place bazelisk at the path bazel.py expects
+          mkdir -p kernel_platform/prebuilts/kernel-build-tools/bazel/linux-x86_64
+          cp "$HOME/bin/bazel"             kernel_platform/prebuilts/kernel-build-tools/bazel/linux-x86_64/bazel
+          chmod +x kernel_platform/prebuilts/kernel-build-tools/bazel/linux-x86_64/bazel
 
       # ── 8. Build msm_kgsl.ko via Bazel ────────────────────────────────
       - name: Build msm_kgsl.ko (sun_perf)
