@@ -114,58 +114,9 @@ jobs:
               f.write(content)
           PYEOF
 
-          # --- Write C sysfs code to a temp file (avoids YAML/comment conflicts) ---
-          cat > /tmp/voltage_offset_sysfs.c << 'CEOF'
-static ssize_t gpu_voltage_offset_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct kgsl_device *device = dev_get_drvdata(dev);
-	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
-	ssize_t len = 0;
-	unsigned int i;
+          # --- Write C sysfs code via base64 (avoids all YAML special char issues) ---
+          echo "c3RhdGljIHNzaXplX3QgZ3B1X3ZvbHRhZ2Vfb2Zmc2V0X3Nob3coc3RydWN0IGRldmljZSAqZGV2LAoJCXN0cnVjdCBkZXZpY2VfYXR0cmlidXRlICphdHRyLCBjaGFyICpidWYpCnsKCXN0cnVjdCBrZ3NsX2RldmljZSAqZGV2aWNlID0gZGV2X2dldF9kcnZkYXRhKGRldik7CglzdHJ1Y3Qga2dzbF9wd3JjdHJsICpwd3IgPSAmZGV2aWNlLT5wd3JjdHJsOwoJc3NpemVfdCBsZW4gPSAwOwoJdW5zaWduZWQgaW50IGk7CgoJZm9yIChpID0gMDsgaSA8IHB3ci0+bnVtX3B3cmxldmVsczsgaSsrKSB7CgkJbGVuICs9IHNjbnByaW50ZihidWYgKyBsZW4sIFBBR0VfU0laRSAtIGxlbiwKCQkJCSIlZCIsIHB3ci0+dm9sdGFnZV9vZmZzZXRbaV0pOwoJCWlmIChpIDwgcHdyLT5udW1fcHdybGV2ZWxzIC0gMSkKCQkJbGVuICs9IHNjbnByaW50ZihidWYgKyBsZW4sIFBBR0VfU0laRSAtIGxlbiwgIiAiKTsKCX0KCWxlbiArPSBzY25wcmludGYoYnVmICsgbGVuLCBQQUdFX1NJWkUgLSBsZW4sICJcbiIpOwoJcmV0dXJuIGxlbjsKfQoKc3RhdGljIHNzaXplX3QgZ3B1X3ZvbHRhZ2Vfb2Zmc2V0X3N0b3JlKHN0cnVjdCBkZXZpY2UgKmRldiwKCQlzdHJ1Y3QgZGV2aWNlX2F0dHJpYnV0ZSAqYXR0ciwgY29uc3QgY2hhciAqYnVmLCBzaXplX3QgY291bnQpCnsKCXN0cnVjdCBrZ3NsX2RldmljZSAqZGV2aWNlID0gZGV2X2dldF9kcnZkYXRhKGRldik7CglzdHJ1Y3QgYWRyZW5vX2RldmljZSAqYWRyZW5vX2RldiA9IEFEUkVOT19ERVZJQ0UoZGV2aWNlKTsKCXN0cnVjdCBrZ3NsX3B3cmN0cmwgKnB3ciA9ICZkZXZpY2UtPnB3cmN0cmw7CglzMzIgb2Zmc2V0c1tLR1NMX01BWF9QV1JMRVZFTFNdID0gezB9OwoJY29uc3QgY2hhciAqcHRyID0gYnVmOwoJY2hhciAqZW5kcHRyOwoJaW50IGkgPSAwOwoKCXdoaWxlICgqcHRyICYmIGkgPCAoaW50KXB3ci0+bnVtX3B3cmxldmVscykgewoJCWxvbmcgdmFsID0gc2ltcGxlX3N0cnRvbChwdHIsICZlbmRwdHIsIDEwKTsKCQlpZiAoZW5kcHRyID09IHB0cikKCQkJYnJlYWs7CgkJb2Zmc2V0c1tpKytdID0gKHMzMil2YWw7CgkJcHRyID0gZW5kcHRyOwoJCXdoaWxlICgqcHRyID09ICcgJyB8fCAqcHRyID09ICdcdCcgfHwgKnB0ciA9PSAnXG4nKQoJCQlwdHIrKzsKCX0KCgltdXRleF9sb2NrKCZkZXZpY2UtPm11dGV4KTsKCW1lbWNweShwd3ItPnZvbHRhZ2Vfb2Zmc2V0LCBvZmZzZXRzLCBzaXplb2YoczMyKSAqIHB3ci0+bnVtX3B3cmxldmVscyk7CglpZiAoYWRyZW5vX2Rldi0+Z3B1Y29yZSAmJiBhZHJlbm9fZGV2LT5ncHVjb3JlLT5ncHVkZXYgJiYKCSAgICBhZHJlbm9fZGV2LT5ncHVjb3JlLT5ncHVkZXYtPnJwbWhfdGFibGVzKQoJCWFkcmVub19kZXYtPmdwdWNvcmUtPmdwdWRldi0+cnBtaF90YWJsZXMoYWRyZW5vX2Rldik7CgltdXRleF91bmxvY2soJmRldmljZS0+bXV0ZXgpOwoKCXJldHVybiBjb3VudDsKfQpzdGF0aWMgREVWSUNFX0FUVFJfUlcoZ3B1X3ZvbHRhZ2Vfb2Zmc2V0KTsK" | base64 -d > /tmp/voltage_offset_sysfs.c
 
-	for (i = 0; i < pwr->num_pwrlevels; i++) {
-		len += scnprintf(buf + len, PAGE_SIZE - len,
-				"%d", pwr->voltage_offset[i]);
-		if (i < pwr->num_pwrlevels - 1)
-			len += scnprintf(buf + len, PAGE_SIZE - len, " ");
-	}
-	len += scnprintf(buf + len, PAGE_SIZE - len, "\n");
-	return len;
-}
-
-static ssize_t gpu_voltage_offset_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	struct kgsl_device *device = dev_get_drvdata(dev);
-	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
-	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
-	s32 offsets[KGSL_MAX_PWRLEVELS] = {0};
-	const char *ptr = buf;
-	char *endptr;
-	int i = 0;
-
-	while (*ptr && i < (int)pwr->num_pwrlevels) {
-		long val = simple_strtol(ptr, &endptr, 10);
-		if (endptr == ptr)
-			break;
-		offsets[i++] = (s32)val;
-		ptr = endptr;
-		while (*ptr == ' ' || *ptr == '\t' || *ptr == '\n')
-			ptr++;
-	}
-
-	mutex_lock(&device->mutex);
-	memcpy(pwr->voltage_offset, offsets, sizeof(s32) * pwr->num_pwrlevels);
-	if (adreno_dev->gpucore && adreno_dev->gpucore->gpudev &&
-	    adreno_dev->gpucore->gpudev->rpmh_tables)
-		adreno_dev->gpucore->gpudev->rpmh_tables(adreno_dev);
-	mutex_unlock(&device->mutex);
-
-	return count;
-}
-static DEVICE_ATTR_RW(gpu_voltage_offset);
-CEOF
 
           # --- adreno_sysfs.c: inject the sysfs node ---
           python3 - << 'PYEOF'
