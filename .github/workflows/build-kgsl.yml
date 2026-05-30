@@ -208,10 +208,15 @@ jobs:
           cd kernel_platform/msm-kernel
           # Check for WORKSPACE file and create if missing
           ls WORKSPACE 2>/dev/null || ls MODULE.bazel 2>/dev/null || touch WORKSPACE
+          # Strip incompatible flag_alias lines from .bazelrc before running
+          find . -name ".bazelrc" | xargs grep -l "flag_alias" |             xargs sed -i '/flag_alias.*no@kleaf/d' 2>/dev/null || true
+          # Also move bazel output root outside the repo to avoid cache warning
+          mkdir -p /tmp/bazel_output
           # Run bazel from msm-kernel root where the workspace is defined
-          ../tools/bazel run \
+          ../tools/bazel \
+            --output_user_root=/tmp/bazel_output \
+            run \
             --repo_contents_cache=/tmp/bazel_repo_cache \
-            --noexperimental_kernel_use_resolved_toolchains \
             --//msm-kernel:skip_abi=true \
             --user_kmi_symbol_lists=//msm-kernel:android/abi_gki_aarch64_qcom \
             //vendor/qcom/opensource/graphics-kernel:sun_perf_msm_kgsl_dist \
