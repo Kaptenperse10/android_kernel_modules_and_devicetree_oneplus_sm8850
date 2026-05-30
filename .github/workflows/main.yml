@@ -1,0 +1,268 @@
+name: Build KGSL GPU Module (OnePlus 15 / SM8850 sun)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      description:
+        description: 'Build tag / description'
+        required: false
+        default: 'undervolt-patch'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      # ── 1. Checkout this repo (modules + devicetree) ───────────────────
+      - name: Checkout modules repo
+        uses: actions/checkout@v4
+        with:
+          path: android_kernel_modules_and_devicetree_oneplus_sm8850
+
+      # ── 2. Clone common kernel ─────────────────────────────────────────
+      - name: Clone android_kernel_common_oneplus_sm8850
+        run: |
+          git clone --depth=1 \
+            https://github.com/OnePlusOSS/android_kernel_common_oneplus_sm8850.git \
+            kernel_platform/common
+
+      # ── 3. Clone platform kernel ───────────────────────────────────────
+      - name: Clone android_kernel_oneplus_sm8850
+        run: |
+          git clone --depth=1 \
+            https://github.com/OnePlusOSS/android_kernel_oneplus_sm8850.git \
+            kernel_platform/msm-kernel
+
+      # ── 4. Set up symlinks to match expected repo layout ───────────────
+      - name: Set up repo layout
+        run: |
+          # The build system expects vendor/ and kernel_platform/ at the same level
+          # Copy/link modules repo contents into place
+          cp -r android_kernel_modules_and_devicetree_oneplus_sm8850/kernel_platform/build \
+                kernel_platform/build
+          cp -r android_kernel_modules_and_devicetree_oneplus_sm8850/kernel_platform/oplus \
+                kernel_platform/oplus
+          cp -r android_kernel_modules_and_devicetree_oneplus_sm8850/kernel_platform/qcom \
+                kernel_platform/qcom
+          cp -r android_kernel_modules_and_devicetree_oneplus_sm8850/kernel_platform/tools \
+                kernel_platform/tools
+          cp -r android_kernel_modules_and_devicetree_oneplus_sm8850/vendor vendor
+
+      # ── 5. Apply voltage offset patch ─────────────────────────────────
+      - name: Apply GPU voltage offset patch
+        run: |
+          cd vendor/qcom/opensource/graphics-kernel
+
+          # --- kgsl_pwrctrl.h: add voltage_offset[] field ---
+          python3 - << 'PYEOF'
+          with open('kgsl_pwrctrl.h', 'r') as f:
+              content = f.read()
+
+          insert_after = '\tu32 aggr_max_pwrlevel;'
+          new_field = (
+              '\n\t/**\n'
+              '\t * @voltage_offset: Signed per-level voltage offset (vlvl units).\n'
+              '\t * Index 0 = highest frequency. Applied before sending to GMU.\n'
+              '\t */\n'
+              '\ts32 voltage_offset[KGSL_MAX_PWRLEVELS];'
+          )
+
+          if insert_after in content and 'voltage_offset' not in content:
+              content = content.replace(insert_after, insert_after + new_field)
+              print('kgsl_pwrctrl.h: patched OK')
+          else:
+              print('kgsl_pwrctrl.h: already patched or pattern not found')
+
+          with open('kgsl_pwrctrl.h', 'w') as f:
+              f.write(content)
+          PYEOF
+
+          # --- adreno_gen8_rpmh.c: apply offset when building vlvl_tbl ---
+          python3 - << 'PYEOF'
+          with open('adreno_gen8_rpmh.c', 'r') as f:
+              content = f.read()
+
+          old = '\t\tvlvl_tbl[i] = pwr->pwrlevels[pwr->num_pwrlevels - i].voltage_level;\n\t\tcx_vlvl_tbl[i] = pwr->pwrlevels[pwr->num_pwrlevels - i].cx_level;'
+          new = (
+              '\t\t{\n'
+              '\t\t\tu32 _base = pwr->pwrlevels[pwr->num_pwrlevels - i].voltage_level;\n'
+              '\t\t\ts32 _off  = pwr->voltage_offset[pwr->num_pwrlevels - i];\n'
+              '\t\t\ts32 _adj  = (s32)_base + _off;\n'
+              '\t\t\tif (_adj < 1) _adj = 1;\n'
+              '\t\t\tvlvl_tbl[i] = (u16)_adj;\n'
+              '\t\t}\n'
+              '\t\tcx_vlvl_tbl[i] = pwr->pwrlevels[pwr->num_pwrlevels - i].cx_level;'
+          )
+
+          if old in content:
+              content = content.replace(old, new)
+              print('adreno_gen8_rpmh.c: patched OK')
+          elif 'voltage_offset' in content:
+              print('adreno_gen8_rpmh.c: already patched')
+          else:
+              print('ERROR: pattern not found in adreno_gen8_rpmh.c')
+              # Print context for debugging
+              for i, line in enumerate(content.split('\n')):
+                  if 'vlvl_tbl[i]' in line:
+                      print(f'  Line {i}: {line}')
+              exit(1)
+
+          with open('adreno_gen8_rpmh.c', 'w') as f:
+              f.write(content)
+          PYEOF
+
+          # --- adreno_sysfs.c: add gpu_voltage_offset sysfs node ---
+          python3 - << 'PYEOF'
+          sysfs_addition = r'''
+/* ------------------------------------------------------------------ */
+/* gpu_voltage_offset: per-pwrlevel voltage offset control             */
+/* Usage: echo "-20 -20 -15 -10 0 0 0 0" > gpu_voltage_offset         */
+/* ------------------------------------------------------------------ */
+static ssize_t gpu_voltage_offset_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct kgsl_device *device = dev_get_drvdata(dev);
+	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
+	ssize_t len = 0;
+	unsigned int i;
+
+	for (i = 0; i < pwr->num_pwrlevels; i++) {
+		len += scnprintf(buf + len, PAGE_SIZE - len,
+				"%d", pwr->voltage_offset[i]);
+		if (i < pwr->num_pwrlevels - 1)
+			len += scnprintf(buf + len, PAGE_SIZE - len, " ");
+	}
+	len += scnprintf(buf + len, PAGE_SIZE - len, "\n");
+	return len;
+}
+
+static ssize_t gpu_voltage_offset_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct kgsl_device *device = dev_get_drvdata(dev);
+	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
+	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
+	s32 offsets[KGSL_MAX_PWRLEVELS] = {0};
+	const char *ptr = buf;
+	char *endptr;
+	int i = 0;
+
+	while (*ptr && i < (int)pwr->num_pwrlevels) {
+		long val = simple_strtol(ptr, &endptr, 10);
+		if (endptr == ptr)
+			break;
+		offsets[i++] = (s32)val;
+		ptr = endptr;
+		while (*ptr == ' ' || *ptr == '\t' || *ptr == '\n')
+			ptr++;
+	}
+
+	mutex_lock(&device->mutex);
+	memcpy(pwr->voltage_offset, offsets, sizeof(s32) * pwr->num_pwrlevels);
+	/* Rebuild DCVS table and push updated voltages to GMU */
+	if (adreno_dev->gpucore && adreno_dev->gpucore->gpudev &&
+	    adreno_dev->gpucore->gpudev->rpmh_tables)
+		adreno_dev->gpucore->gpudev->rpmh_tables(adreno_dev);
+	mutex_unlock(&device->mutex);
+
+	return count;
+}
+static DEVICE_ATTR_RW(gpu_voltage_offset);
+
+'''
+
+          with open('adreno_sysfs.c', 'r') as f:
+              content = f.read()
+
+          if 'gpu_voltage_offset' in content:
+              print('adreno_sysfs.c: already patched')
+          else:
+              # Insert before adreno_sysfs_create function
+              marker = 'int adreno_sysfs_create'
+              if marker in content:
+                  content = content.replace(marker, sysfs_addition + marker)
+                  print('adreno_sysfs.c: show/store functions injected OK')
+              else:
+                  content += sysfs_addition
+                  print('adreno_sysfs.c: appended to end of file')
+
+              with open('adreno_sysfs.c', 'w') as f:
+                  f.write(content)
+          PYEOF
+
+          # --- adreno_sysfs.c: register attribute in adreno_attrs[] ---
+          python3 - << 'PYEOF'
+          import re
+
+          with open('adreno_sysfs.c', 'r') as f:
+              content = f.read()
+
+          if 'gpu_voltage_offset.attr' in content:
+              print('adreno_sysfs.c: attr already registered')
+          else:
+              # Find attrs array and insert before NULL terminator
+              pattern = r'(static struct attribute \*adreno_attrs\[\][^{]*\{)(.*?)(NULL\s*\})'
+              def add_attr(m):
+                  return m.group(1) + m.group(2) + '\t&dev_attr_gpu_voltage_offset.attr,\n\t' + m.group(3)
+              new_content, n = re.subn(pattern, add_attr, content, flags=re.DOTALL)
+              if n:
+                  print('adreno_sysfs.c: registered in attrs array OK')
+                  with open('adreno_sysfs.c', 'w') as f:
+                      f.write(new_content)
+              else:
+                  print('WARNING: adreno_attrs[] not found - attribute needs manual registration')
+          PYEOF
+
+      # ── 6. Install build dependencies ─────────────────────────────────
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            bc bison flex libssl-dev libelf-dev \
+            python3 python3-pip \
+            gcc-aarch64-linux-gnu \
+            make git curl zip unzip \
+            cpio lz4 rsync
+
+      # ── 7. Download Bazel ──────────────────────────────────────────────
+      - name: Set up Bazel
+        run: |
+          # Use the bazel wrapper already present in the kernel platform
+          chmod +x kernel_platform/tools/bazel || true
+          # Fallback: install bazelisk
+          if ! kernel_platform/tools/bazel version 2>/dev/null; then
+            curl -Lo /usr/local/bin/bazel \
+              https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
+            chmod +x /usr/local/bin/bazel
+          fi
+
+      # ── 8. Build msm_kgsl.ko via Bazel ────────────────────────────────
+      - name: Build msm_kgsl.ko (sun_perf)
+        run: |
+          cd kernel_platform
+          # Target: //vendor/qcom/opensource/graphics-kernel:sun_perf_msm_kgsl_dist
+          ./tools/bazel run \
+            --//msm-kernel:skip_abi=true \
+            --user_kmi_symbol_lists=//msm-kernel:android/abi_gki_aarch64_qcom \
+            //vendor/qcom/opensource/graphics-kernel:sun_perf_msm_kgsl_dist \
+            -- --dist_dir=../out/graphics-kernel
+
+      # ── 9. Collect and upload artifact ────────────────────────────────
+      - name: Collect build artifacts
+        run: |
+          mkdir -p final_out
+          find out/graphics-kernel -name "*.ko" -exec cp {} final_out/ \; 2>/dev/null || true
+          find kernel_platform -name "msm_kgsl.ko" -exec cp {} final_out/ \; 2>/dev/null || true
+          echo "Built files:"
+          ls -lh final_out/ || echo "No .ko files found"
+
+      - name: Upload msm_kgsl.ko
+        uses: actions/upload-artifact@v4
+        with:
+          name: msm_kgsl-sun-undervolt-${{ github.run_number }}
+          path: final_out/*.ko
+          retention-days: 30
+          if-no-files-found: warn
