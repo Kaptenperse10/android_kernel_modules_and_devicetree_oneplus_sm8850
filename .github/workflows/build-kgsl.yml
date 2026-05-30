@@ -216,10 +216,20 @@ jobs:
           cd kernel_platform/msm-kernel
           # Check for WORKSPACE file and create if missing
           ls WORKSPACE 2>/dev/null || ls MODULE.bazel 2>/dev/null || touch WORKSPACE
-          # Strip ALL flag_alias lines from every .bazelrc Bazel might read
-          for f in .bazelrc ../.bazelrc ../../.bazelrc                    $(find . -name "*.bazelrc" 2>/dev/null); do
-            [ -f "$f" ] && sed -i '/flag_alias/d' "$f" && echo "Patched $f"
-          done
+          # Find and show all bazelrc files for debugging
+          echo "=== Searching for bazelrc files ==="
+          find ../.. -name "*.bazelrc" -o -name ".bazelrc" 2>/dev/null | head -20
+          echo "=== HOME bazelrc ==="
+          cat ~/.bazelrc 2>/dev/null || echo "none"
+          echo "=== Patching all bazelrc files ==="
+          find ../.. -name "*.bazelrc" -o -name ".bazelrc" 2>/dev/null |             while read f; do
+              if grep -q "flag_alias" "$f" 2>/dev/null; then
+                echo "Patching: $f"
+                sed -i '/flag_alias/d' "$f"
+              fi
+            done
+          # Also patch HOME bazelrc if it exists
+          [ -f ~/.bazelrc ] && sed -i '/flag_alias/d' ~/.bazelrc || true
           # Move output root outside repo to avoid cache-inside-repo warning
           mkdir -p /tmp/bazel_output /tmp/bazel_repo_cache
           # Run bazel
