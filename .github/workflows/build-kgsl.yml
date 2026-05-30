@@ -210,6 +210,8 @@ jobs:
           ls WORKSPACE 2>/dev/null || ls MODULE.bazel 2>/dev/null || touch WORKSPACE
           # Run bazel from msm-kernel root where the workspace is defined
           ../tools/bazel run \
+            --repo_contents_cache=/tmp/bazel_repo_cache \
+            --noexperimental_kernel_use_resolved_toolchains \
             --//msm-kernel:skip_abi=true \
             --user_kmi_symbol_lists=//msm-kernel:android/abi_gki_aarch64_qcom \
             //vendor/qcom/opensource/graphics-kernel:sun_perf_msm_kgsl_dist \
