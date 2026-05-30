@@ -4,105 +4,87 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch:
-    inputs:
-      description:
-        description: 'Build tag / description'
-        required: false
-        default: 'undervolt-patch'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
 
     steps:
-      # ── 1. Checkout this repo (modules + devicetree) ───────────────────
       - name: Checkout modules repo
         uses: actions/checkout@v4
         with:
           path: android_kernel_modules_and_devicetree_oneplus_sm8850
 
-      # ── 2. Clone common kernel ─────────────────────────────────────────
-      - name: Clone android_kernel_common_oneplus_sm8850
+      - name: Install dependencies
         run: |
-          git clone --depth=1 \
-            https://github.com/OnePlusOSS/android_kernel_common_oneplus_sm8850.git \
-            kernel_platform/common
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            bc bison flex libssl-dev libelf-dev \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            make git curl zip unzip python3
 
-      # ── 3. Clone platform kernel ───────────────────────────────────────
-      - name: Clone android_kernel_oneplus_sm8850
+      - name: Clone kernel sources
         run: |
           git clone --depth=1 \
             https://github.com/OnePlusOSS/android_kernel_oneplus_sm8850.git \
-            kernel_platform/msm-kernel
-
-
-      # ── 3a. Patch .bazelrc in cloned repos ────────────────────────────
-      - name: Patch bazelrc files
-        run: |
-          # Remove flag_alias lines that are incompatible with this Bazel version
-          find kernel_platform -name "*.bazelrc" -o -name ".bazelrc" 2>/dev/null |             while read f; do
-              sed -i '/flag_alias/d' "$f" && echo "Patched: $f"
-            done || true
-
-      # ── 3b. Clone prebuilts ────────────────────────────────────────────
-      - name: Clone kernel prebuilts
-        run: |
+            kernel/msm-kernel
           git clone --depth=1 \
-            https://android.googlesource.com/kernel/prebuilts/build-tools \
-            kernel_platform/prebuilts/build-tools
-          git clone --depth=1 \
-            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
-            kernel_platform/prebuilts/clang/host/linux-x86
-      # ── 4. Set up symlinks to match expected repo layout ───────────────
-      - name: Set up repo layout
-        run: |
-          # The build system expects vendor/ and kernel_platform/ at the same level
-          # Copy/link modules repo contents into place
-          cp -r android_kernel_modules_and_devicetree_oneplus_sm8850/kernel_platform/build \
-                kernel_platform/build
-          cp -r android_kernel_modules_and_devicetree_oneplus_sm8850/kernel_platform/oplus \
-                kernel_platform/oplus
-          cp -r android_kernel_modules_and_devicetree_oneplus_sm8850/kernel_platform/qcom \
-                kernel_platform/qcom
-          cp -r android_kernel_modules_and_devicetree_oneplus_sm8850/kernel_platform/tools \
-                kernel_platform/tools
-          cp -r android_kernel_modules_and_devicetree_oneplus_sm8850/vendor vendor
+            https://github.com/OnePlusOSS/android_kernel_common_oneplus_sm8850.git \
+            kernel/common
 
-      # ── 5. Apply voltage offset patch ─────────────────────────────────
+      - name: Download Clang toolchain
+        run: |
+          mkdir -p toolchain
+          curl -Lo clang.tar.gz \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r547379.tar.gz" \
+            || curl -Lo clang.tar.gz \
+            "https://github.com/llvm/llvm-project/releases/download/llvmorg-17.0.6/clang+llvm-17.0.6-x86_64-linux-gnu-ubuntu-22.04.tar.xz"
+          mkdir -p toolchain/clang
+          tar xf clang.tar.gz -C toolchain/clang --strip-components=1 2>/dev/null || \
+          tar xf clang.tar.gz -C toolchain/clang
+          echo "$(pwd)/toolchain/clang/bin" >> $GITHUB_PATH
+
+      - name: Build kernel to get Module.symvers
+        run: |
+          cd kernel/msm-kernel
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export LLVM=1
+          export LLVM_IAS=1
+          # Find sun defconfig
+          DEFCONFIG=$(find arch/arm64/configs -name "*sun*" | head -1)
+          echo "Using defconfig: $DEFCONFIG"
+          make O=../out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- \
+            $(basename $DEFCONFIG) 2>/dev/null || \
+          make O=../out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- defconfig
+          make -j$(nproc) O=../out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- modules_prepare
+
       - name: Apply GPU voltage offset patch
         run: |
-          cd vendor/qcom/opensource/graphics-kernel
+          cd android_kernel_modules_and_devicetree_oneplus_sm8850/vendor/qcom/opensource/graphics-kernel
 
-          # --- kgsl_pwrctrl.h: add voltage_offset[] field ---
           python3 - << 'PYEOF'
           with open('kgsl_pwrctrl.h', 'r') as f:
               content = f.read()
-
           insert_after = '\tu32 aggr_max_pwrlevel;'
           new_field = (
-              '\n\t/**\n'
-              '\t * @voltage_offset: Signed per-level voltage offset (vlvl units).\n'
-              '\t * Index 0 = highest frequency. Applied before sending to GMU.\n'
-              '\t */\n'
+              '\n\t/** @voltage_offset: Signed per-level voltage offset (vlvl units). */\n'
               '\ts32 voltage_offset[KGSL_MAX_PWRLEVELS];'
           )
-
           if insert_after in content and 'voltage_offset' not in content:
               content = content.replace(insert_after, insert_after + new_field)
               print('kgsl_pwrctrl.h: patched OK')
           else:
               print('kgsl_pwrctrl.h: already patched or pattern not found')
-
           with open('kgsl_pwrctrl.h', 'w') as f:
               f.write(content)
           PYEOF
 
-          # --- adreno_gen8_rpmh.c: apply offset when building vlvl_tbl ---
           python3 - << 'PYEOF'
           with open('adreno_gen8_rpmh.c', 'r') as f:
               content = f.read()
-
           old = '\t\tvlvl_tbl[i] = pwr->pwrlevels[pwr->num_pwrlevels - i].voltage_level;\n\t\tcx_vlvl_tbl[i] = pwr->pwrlevels[pwr->num_pwrlevels - i].cx_level;'
           new = (
               '\t\t{\n'
@@ -114,144 +96,89 @@ jobs:
               '\t\t}\n'
               '\t\tcx_vlvl_tbl[i] = pwr->pwrlevels[pwr->num_pwrlevels - i].cx_level;'
           )
-
           if old in content:
               content = content.replace(old, new)
               print('adreno_gen8_rpmh.c: patched OK')
           elif 'voltage_offset' in content:
               print('adreno_gen8_rpmh.c: already patched')
           else:
-              print('ERROR: pattern not found in adreno_gen8_rpmh.c')
-              # Print context for debugging
-              for i, line in enumerate(content.split('\n')):
-                  if 'vlvl_tbl[i]' in line:
-                      print(f'  Line {i}: {line}')
+              print('ERROR: pattern not found')
               exit(1)
-
           with open('adreno_gen8_rpmh.c', 'w') as f:
               f.write(content)
           PYEOF
 
-          # --- Write C sysfs code via base64 (avoids all YAML special char issues) ---
-          echo "c3RhdGljIHNzaXplX3QgZ3B1X3ZvbHRhZ2Vfb2Zmc2V0X3Nob3coc3RydWN0IGRldmljZSAqZGV2LAoJCXN0cnVjdCBkZXZpY2VfYXR0cmlidXRlICphdHRyLCBjaGFyICpidWYpCnsKCXN0cnVjdCBrZ3NsX2RldmljZSAqZGV2aWNlID0gZGV2X2dldF9kcnZkYXRhKGRldik7CglzdHJ1Y3Qga2dzbF9wd3JjdHJsICpwd3IgPSAmZGV2aWNlLT5wd3JjdHJsOwoJc3NpemVfdCBsZW4gPSAwOwoJdW5zaWduZWQgaW50IGk7CgoJZm9yIChpID0gMDsgaSA8IHB3ci0+bnVtX3B3cmxldmVsczsgaSsrKSB7CgkJbGVuICs9IHNjbnByaW50ZihidWYgKyBsZW4sIFBBR0VfU0laRSAtIGxlbiwKCQkJCSIlZCIsIHB3ci0+dm9sdGFnZV9vZmZzZXRbaV0pOwoJCWlmIChpIDwgcHdyLT5udW1fcHdybGV2ZWxzIC0gMSkKCQkJbGVuICs9IHNjbnByaW50ZihidWYgKyBsZW4sIFBBR0VfU0laRSAtIGxlbiwgIiAiKTsKCX0KCWxlbiArPSBzY25wcmludGYoYnVmICsgbGVuLCBQQUdFX1NJWkUgLSBsZW4sICJcbiIpOwoJcmV0dXJuIGxlbjsKfQoKc3RhdGljIHNzaXplX3QgZ3B1X3ZvbHRhZ2Vfb2Zmc2V0X3N0b3JlKHN0cnVjdCBkZXZpY2UgKmRldiwKCQlzdHJ1Y3QgZGV2aWNlX2F0dHJpYnV0ZSAqYXR0ciwgY29uc3QgY2hhciAqYnVmLCBzaXplX3QgY291bnQpCnsKCXN0cnVjdCBrZ3NsX2RldmljZSAqZGV2aWNlID0gZGV2X2dldF9kcnZkYXRhKGRldik7CglzdHJ1Y3QgYWRyZW5vX2RldmljZSAqYWRyZW5vX2RldiA9IEFEUkVOT19ERVZJQ0UoZGV2aWNlKTsKCXN0cnVjdCBrZ3NsX3B3cmN0cmwgKnB3ciA9ICZkZXZpY2UtPnB3cmN0cmw7CglzMzIgb2Zmc2V0c1tLR1NMX01BWF9QV1JMRVZFTFNdID0gezB9OwoJY29uc3QgY2hhciAqcHRyID0gYnVmOwoJY2hhciAqZW5kcHRyOwoJaW50IGkgPSAwOwoKCXdoaWxlICgqcHRyICYmIGkgPCAoaW50KXB3ci0+bnVtX3B3cmxldmVscykgewoJCWxvbmcgdmFsID0gc2ltcGxlX3N0cnRvbChwdHIsICZlbmRwdHIsIDEwKTsKCQlpZiAoZW5kcHRyID09IHB0cikKCQkJYnJlYWs7CgkJb2Zmc2V0c1tpKytdID0gKHMzMil2YWw7CgkJcHRyID0gZW5kcHRyOwoJCXdoaWxlICgqcHRyID09ICcgJyB8fCAqcHRyID09ICdcdCcgfHwgKnB0ciA9PSAnXG4nKQoJCQlwdHIrKzsKCX0KCgltdXRleF9sb2NrKCZkZXZpY2UtPm11dGV4KTsKCW1lbWNweShwd3ItPnZvbHRhZ2Vfb2Zmc2V0LCBvZmZzZXRzLCBzaXplb2YoczMyKSAqIHB3ci0+bnVtX3B3cmxldmVscyk7CglpZiAoYWRyZW5vX2Rldi0+Z3B1Y29yZSAmJiBhZHJlbm9fZGV2LT5ncHVjb3JlLT5ncHVkZXYgJiYKCSAgICBhZHJlbm9fZGV2LT5ncHVjb3JlLT5ncHVkZXYtPnJwbWhfdGFibGVzKQoJCWFkcmVub19kZXYtPmdwdWNvcmUtPmdwdWRldi0+cnBtaF90YWJsZXMoYWRyZW5vX2Rldik7CgltdXRleF91bmxvY2soJmRldmljZS0+bXV0ZXgpOwoKCXJldHVybiBjb3VudDsKfQpzdGF0aWMgREVWSUNFX0FUVFJfUlcoZ3B1X3ZvbHRhZ2Vfb2Zmc2V0KTsK" | base64 -d > /tmp/voltage_offset_sysfs.c
+          echo "c3RhdGljIHNzaXplX3QgZ3B1X3ZvbHRhZ2Vfb2Zmc2V0X3Nob3coc3RydWN0IGRldmljZSAqZGV2LAoJCXN0cnVjdCBkZXZpY2VfYXR0cmlidXRlICphdHRyLCBjaGFyICpidWYpCnsKCXN0cnVjdCBrZ3NsX2RldmljZSAqZGV2aWNlID0gZGV2X2dldF9kcnZkYXRhKGRldik7CglzdHJ1Y3Qga2dzbF9wd3JjdHJsICpwd3IgPSAmZGV2aWNlLT5wd3JjdHJsOwoJc3NpemVfdCBsZW4gPSAwOwoJdW5zaWduZWQgaW50IGk7CgoJZm9yIChpID0gMDsgaSA8IHB3ci0+bnVtX3B3cmxldmVsczsgaSsrKSB7CgkJbGVuICs9IHNjbnByaW50ZihidWYgKyBsZW4sIFBBR0VfU0laRSAtIGxlbiwKCQkJCSIlZCIsIHB3ci0+dm9sdGFnZV9vZmZzZXRbaV0pOwoJCWlmIChpIDwgcHdyLT5udW1fcHdybGV2ZWxzIC0gMSkKCQkJbGVuICs9IHNjbnByaW50ZihidWYgKyBsZW4sIFBBR0VfU0laRSAtIGxlbiwgIiAiKTsKCX0KCWxlbiArPSBzY25wcmludGYoYnVmICsgbGVuLCBQQUdFX1NJWkUgLSBsZW4sICJcbiIpOwoJcmV0dXJuIGxlbjsKfQoKc3RhdGljIHNzaXplX3QgZ3B1X3ZvbHRhZ2Vfb2Zmc2V0X3N0b3JlKHN0cnVjdCBkZXZpY2UgKmRldiwKCQlzdHJ1Y3QgZGV2aWNlX2F0dHJpYnV0ZSAqYXR0ciwgY29uc3QgY2hhciAqYnVmLCBzaXplX3QgY291bnQpCnsKCXN0cnVjdCBrZ3NsX2RldmljZSAqZGV2aWNlID0gZGV2X2dldF9kcnZkYXRhKGRldik7CglzdHJ1Y3QgYWRyZW5vX2RldmljZSAqYWRyZW5vX2RldiA9IEFEUkVOT19ERVZJQ0UoZGV2aWNlKTsKCXN0cnVjdCBrZ3NsX3B3cmN0cmwgKnB3ciA9ICZkZXZpY2UtPnB3cmN0cmw7CglzMzIgb2Zmc2V0c1tLR1NMX01BWF9QV1JMRVZFTFNdID0gezB9OwoJY29uc3QgY2hhciAqcHRyID0gYnVmOwoJY2hhciAqZW5kcHRyOwoJaW50IGkgPSAwOwoKCXdoaWxlICgqcHRyICYmIGkgPCAoaW50KXB3ci0+bnVtX3B3cmxldmVscykgewoJCWxvbmcgdmFsID0gc2ltcGxlX3N0cnRvbChwdHIsICZlbmRwdHIsIDEwKTsKCQlpZiAoZW5kcHRyID09IHB0cikKCQkJYnJlYWs7CgkJb2Zmc2V0c1tpKytdID0gKHMzMil2YWw7CgkJcHRyID0gZW5kcHRyOwoJCXdoaWxlICgqcHRyID09ICcgJyB8fCAqcHRyID09ICdcdCcgfHwgKnB0ciA9PSAnXG4nKQoJCQlwdHIrKzsKCX0KCgltdXRleF9sb2NrKCZkZXZpY2UtPm11dGV4KTsKCW1lbWNweShwd3ItPnZvbHRhZ2Vfb2Zmc2V0LCBvZmZzZXRzLCBzaXplb2YoczMyKSAqIHB3ci0+bnVtX3B3cmxldmVscyk7CglpZiAoYWRyZW5vX2Rldi0+Z3B1Y29yZSAmJiBhZHJlbm9fZGV2LT5ncHVjb3JlLT5ncHVkZXYgJiYKCSAgICBhZHJlbm9fZGV2LT5ncHVjb3JlLT5ncHVkZXYtPnJwbWhfdGFibGVzKQoJCWFkcmVub19kZXYtPmdwdWNvcmUtPmdwdWRldi0+cnBtaF90YWJsZXMoYWRyZW5vX2Rldik7CgltdXRleF91bmxvY2soJmRldmljZS0+bXV0ZXgpOwoKCXJldHVybiBjb3VudDsKfQpzdGF0aWMgREVWSUNFX0FUVFJfUlcoZ3B1X3ZvbHRhZ2Vfb2Zmc2V0KTsK" | base64 -d > /tmp/sysfs_addition.c
 
-
-          # --- adreno_sysfs.c: inject the sysfs node ---
           python3 - << 'PYEOF'
-          with open('/tmp/voltage_offset_sysfs.c', 'r') as f:
+          with open('/tmp/sysfs_addition.c', 'r') as f:
               sysfs_addition = '\n' + f.read() + '\n'
-
           with open('adreno_sysfs.c', 'r') as f:
               content = f.read()
-
           if 'gpu_voltage_offset' in content:
               print('adreno_sysfs.c: already patched')
           else:
               marker = 'int adreno_sysfs_create'
               if marker in content:
                   content = content.replace(marker, sysfs_addition + marker)
-                  print('adreno_sysfs.c: show/store functions injected OK')
+                  print('adreno_sysfs.c: injected OK')
               else:
                   content += sysfs_addition
-                  print('adreno_sysfs.c: appended to end of file')
-
+                  print('adreno_sysfs.c: appended')
               with open('adreno_sysfs.c', 'w') as f:
                   f.write(content)
           PYEOF
 
-          # --- adreno_sysfs.c: register attribute in adreno_attrs[] ---
           python3 - << 'PYEOF'
           import re
-
           with open('adreno_sysfs.c', 'r') as f:
               content = f.read()
-
-          if 'gpu_voltage_offset.attr' in content:
-              print('adreno_sysfs.c: attr already registered')
-          else:
-              # Find attrs array and insert before NULL terminator
+          if 'gpu_voltage_offset.attr' not in content:
               pattern = r'(static struct attribute \*adreno_attrs\[\][^{]*\{)(.*?)(NULL\s*\})'
               def add_attr(m):
                   return m.group(1) + m.group(2) + '\t&dev_attr_gpu_voltage_offset.attr,\n\t' + m.group(3)
-              new_content, n = re.subn(pattern, add_attr, content, flags=re.DOTALL)
+              content, n = re.subn(pattern, add_attr, content, flags=re.DOTALL)
               if n:
-                  print('adreno_sysfs.c: registered in attrs array OK')
+                  print('adreno_sysfs.c: attr registered OK')
                   with open('adreno_sysfs.c', 'w') as f:
-                      f.write(new_content)
+                      f.write(content)
               else:
-                  print('WARNING: adreno_attrs[] not found - attribute needs manual registration')
+                  print('WARNING: attrs array not found')
           PYEOF
 
-      # ── 6. Install build dependencies ─────────────────────────────────
-      - name: Install dependencies
+      - name: Build msm_kgsl.ko
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y \
-            bc bison flex libssl-dev libelf-dev \
-            python3 python3-pip \
-            gcc-aarch64-linux-gnu \
-            make git curl zip unzip \
-            cpio lz4 rsync
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export LLVM=1
+          export LLVM_IAS=1
+          export KERNEL_SRC=$(pwd)/kernel/out
+          export M=$(pwd)/android_kernel_modules_and_devicetree_oneplus_sm8850/vendor/qcom/opensource/graphics-kernel
 
-      # ── 7. Download Bazel ──────────────────────────────────────────────
-      - name: Set up Bazel
-        run: |
-          # Install bazelisk
-          mkdir -p "$HOME/bin"
-          curl -Lo "$HOME/bin/bazel"             https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
-          chmod +x "$HOME/bin/bazel"
-          echo "$HOME/bin" >> $GITHUB_PATH
-          # Create py3-cmd stub so the bazel wrapper script doesn't fail
-          mkdir -p kernel_platform/prebuilts/build-tools/linux_musl-x86/bin
-          printf '#!/bin/bash\nexec python3 "$@"\n'             > kernel_platform/prebuilts/build-tools/linux_musl-x86/bin/py3-cmd
-          chmod +x kernel_platform/prebuilts/build-tools/linux_musl-x86/bin/py3-cmd
-          # Place bazelisk at the path bazel.py expects
-          mkdir -p kernel_platform/prebuilts/kernel-build-tools/bazel/linux-x86_64
-          cp "$HOME/bin/bazel"             kernel_platform/prebuilts/kernel-build-tools/bazel/linux-x86_64/bazel
-          chmod +x kernel_platform/prebuilts/kernel-build-tools/bazel/linux-x86_64/bazel
+          make -j$(nproc) \
+            -C $KERNEL_SRC \
+            M=$M \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            KGSL_PATH=$M \
+            BOARD_PLATFORM=sun \
+            CONFIG_QCOM_KGSL=m \
+            CONFIG_ARCH_NIOBE=y \
+            modules
 
-      # ── 8. Build msm_kgsl.ko via Bazel ────────────────────────────────
-      - name: Build msm_kgsl.ko (sun_perf)
+      - name: Collect artifacts
         run: |
-          cd kernel_platform/msm-kernel
-          # Show bazelrc for debugging
-          echo "=== .bazelrc ===" && cat .bazelrc 2>/dev/null | grep -i bzlmod || echo "no bzlmod in bazelrc"
-          # Strip incompatible flag_alias from all bazelrc files
-          find ../.. -name "*.bazelrc" 2>/dev/null | while read f; do
-            [ -f "$f" ] && sed -i '/flag_alias/d' "$f" && echo "Patched $f"
-          done || true
-          # Also patch the known offending file directly
-          sed -i '/flag_alias/d' ../build/kernel/kleaf/common.bazelrc 2>/dev/null || true
-          # Symlink build/kernel/kleaf into msm-kernel so Bazel can find it
-          mkdir -p build/kernel
-          ln -sfn "$(pwd)/../build/kernel/kleaf" build/kernel/kleaf
-          # Also symlink vendor into msm-kernel
-          ln -sfn "$(pwd)/../../vendor" vendor
-          # Create minimal MODULE.bazel so bzlmod has nothing to resolve
-          echo "bW9kdWxlKG5hbWUgPSAibXNtX2tlcm5lbCIsIHZlcnNpb24gPSAiMCIpCg==" | base64 -d > MODULE.bazel
-          mkdir -p /tmp/bazel_output /tmp/bazel_repo_cache
-          ../tools/bazel \
-            --output_user_root=/tmp/bazel_output \
-            run \
-            --repo_contents_cache=/tmp/bazel_repo_cache \
-            --registry=https://bcr.bazel.build \
-            --//msm-kernel:skip_abi=true \
-            //vendor/qcom/opensource/graphics-kernel:sun_perf_msm_kgsl_dist \
-            -- --dist_dir=../../out/graphics-kernel
-
-      # ── 9. Collect and upload artifact ────────────────────────────────
-      - name: Collect build artifacts
-        run: |
-          mkdir -p final_out
-          find out/graphics-kernel -name "*.ko" -exec cp {} final_out/ \; 2>/dev/null || true
-          find kernel_platform -name "msm_kgsl.ko" -exec cp {} final_out/ \; 2>/dev/null || true
-          echo "Built files:"
-          ls -lh final_out/ || echo "No .ko files found"
+          mkdir -p out
+          find android_kernel_modules_and_devicetree_oneplus_sm8850 -name "*.ko" -exec cp {} out/ \;
+          echo "Built:"
+          ls -lh out/
 
       - name: Upload msm_kgsl.ko
         uses: actions/upload-artifact@v4
         with:
-          name: msm_kgsl-sun-undervolt-${{ github.run_number }}
-          path: final_out/*.ko
+          name: msm_kgsl-undervolt-${{ github.run_number }}
+          path: out/*.ko
           retention-days: 30
           if-no-files-found: warn
