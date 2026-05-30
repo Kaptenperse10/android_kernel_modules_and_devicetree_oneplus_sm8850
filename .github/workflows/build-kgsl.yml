@@ -222,6 +222,11 @@ jobs:
           done || true
           # Also patch the known offending file directly
           sed -i '/flag_alias/d' ../build/kernel/kleaf/common.bazelrc 2>/dev/null || true
+          # Symlink build/kernel/kleaf into msm-kernel so Bazel can find it
+          mkdir -p build/kernel
+          ln -sfn "$(pwd)/../build/kernel/kleaf" build/kernel/kleaf
+          # Also symlink vendor into msm-kernel
+          ln -sfn "$(pwd)/../../vendor" vendor
           # Create minimal MODULE.bazel so bzlmod has nothing to resolve
           echo "bW9kdWxlKG5hbWUgPSAibXNtX2tlcm5lbCIsIHZlcnNpb24gPSAiMCIpCg==" | base64 -d > MODULE.bazel
           mkdir -p /tmp/bazel_output /tmp/bazel_repo_cache
