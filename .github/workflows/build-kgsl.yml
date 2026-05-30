@@ -36,6 +36,16 @@ jobs:
             https://github.com/OnePlusOSS/android_kernel_oneplus_sm8850.git \
             kernel_platform/msm-kernel
 
+
+      # ── 3b. Clone prebuilts ────────────────────────────────────────────
+      - name: Clone kernel prebuilts
+        run: |
+          git clone --depth=1 \
+            https://android.googlesource.com/kernel/prebuilts/build-tools \
+            kernel_platform/prebuilts/build-tools
+          git clone --depth=1 \
+            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
+            kernel_platform/prebuilts/clang/host/linux-x86
       # ── 4. Set up symlinks to match expected repo layout ───────────────
       - name: Set up repo layout
         run: |
