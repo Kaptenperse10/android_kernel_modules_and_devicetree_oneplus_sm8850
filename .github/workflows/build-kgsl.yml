@@ -48,18 +48,25 @@ jobs:
       - name: Build kernel to get Module.symvers
         run: |
           cd kernel/msm-kernel
+          echo "=== Available defconfigs ==="
+          ls arch/arm64/configs/ | grep -i "sun\|8850\|niobe\|gki" || true
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export LLVM=1
-          export LLVM_IAS=1
-          # Find sun defconfig
-          DEFCONFIG=$(find arch/arm64/configs -name "*sun*" | head -1)
-          echo "Using defconfig: $DEFCONFIG"
-          make O=../out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- \
-            $(basename $DEFCONFIG) 2>/dev/null || \
-          make O=../out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- defconfig
-          make -j$(nproc) O=../out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
-            CROSS_COMPILE=aarch64-linux-gnu- modules_prepare
+          export CC=aarch64-linux-gnu-gcc
+          # Try known defconfig names in order
+          CFG=""
+          for c in vendor/sun_GKI_defconfig sun_GKI_defconfig vendor/sun_defconfig sun_defconfig gki_defconfig; do
+            if [ -f "arch/arm64/configs/$c" ]; then
+              CFG=$c
+              break
+            fi
+          done
+          if [ -z "$CFG" ]; then
+            CFG=$(ls arch/arm64/configs/ | grep -i sun | head -1)
+          fi
+          echo "Using: $CFG"
+          make O=../out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- $CFG
+          make -j$(nproc) O=../out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules_prepare
 
       - name: Apply GPU voltage offset patch
         run: |
@@ -159,8 +166,6 @@ jobs:
             -C $KERNEL_SRC \
             M=$M \
             ARCH=arm64 \
-            LLVM=1 \
-            LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
             KGSL_PATH=$M \
             BOARD_PLATFORM=sun \
