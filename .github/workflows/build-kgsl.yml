@@ -182,9 +182,11 @@ jobs:
           chmod +x kernel_platform/tools/bazel || true
           # Fallback: install bazelisk
           if ! kernel_platform/tools/bazel version 2>/dev/null; then
-            curl -Lo /usr/local/bin/bazel \
+            mkdir -p "$HOME/bin"
+            curl -Lo "$HOME/bin/bazel" \
               https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
-            chmod +x /usr/local/bin/bazel
+            chmod +x "$HOME/bin/bazel"
+            echo "$HOME/bin" >> $GITHUB_PATH
           fi
 
       # ── 8. Build msm_kgsl.ko via Bazel ────────────────────────────────
