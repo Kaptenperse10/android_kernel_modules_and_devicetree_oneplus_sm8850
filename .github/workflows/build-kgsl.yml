@@ -37,6 +37,14 @@ jobs:
             kernel_platform/msm-kernel
 
 
+      # ── 3a. Patch .bazelrc in cloned repos ────────────────────────────
+      - name: Patch bazelrc files
+        run: |
+          # Remove flag_alias lines that are incompatible with this Bazel version
+          find kernel_platform -name "*.bazelrc" -o -name ".bazelrc" 2>/dev/null |             while read f; do
+              sed -i '/flag_alias/d' "$f" && echo "Patched: $f"
+            done || true
+
       # ── 3b. Clone prebuilts ────────────────────────────────────────────
       - name: Clone kernel prebuilts
         run: |
@@ -208,19 +216,14 @@ jobs:
           cd kernel_platform/msm-kernel
           # Check for WORKSPACE file and create if missing
           ls WORKSPACE 2>/dev/null || ls MODULE.bazel 2>/dev/null || touch WORKSPACE
-          # Strip incompatible flag_alias lines from .bazelrc before running
-          find . -name ".bazelrc" | xargs grep -l "flag_alias" |             xargs sed -i '/flag_alias.*no@kleaf/d' 2>/dev/null || true
-          # Also move bazel output root outside the repo to avoid cache warning
-          mkdir -p /tmp/bazel_output
-          # Run bazel from msm-kernel root where the workspace is defined
-          ../tools/bazel \
-            --output_user_root=/tmp/bazel_output \
-            run \
-            --repo_contents_cache=/tmp/bazel_repo_cache \
-            --//msm-kernel:skip_abi=true \
-            --user_kmi_symbol_lists=//msm-kernel:android/abi_gki_aarch64_qcom \
-            //vendor/qcom/opensource/graphics-kernel:sun_perf_msm_kgsl_dist \
-            -- --dist_dir=../../out/graphics-kernel
+          # Strip ALL flag_alias lines from every .bazelrc Bazel might read
+          for f in .bazelrc ../.bazelrc ../../.bazelrc                    $(find . -name "*.bazelrc" 2>/dev/null); do
+            [ -f "$f" ] && sed -i '/flag_alias/d' "$f" && echo "Patched $f"
+          done
+          # Move output root outside repo to avoid cache-inside-repo warning
+          mkdir -p /tmp/bazel_output /tmp/bazel_repo_cache
+          # Run bazel
+          ../tools/bazel             --output_user_root=/tmp/bazel_output             run             --repo_contents_cache=/tmp/bazel_repo_cache             --//msm-kernel:skip_abi=true             --user_kmi_symbol_lists=//msm-kernel:android/abi_gki_aarch64_qcom             //vendor/qcom/opensource/graphics-kernel:sun_perf_msm_kgsl_dist             -- --dist_dir=../../out/graphics-kernel
 
       # ── 9. Collect and upload artifact ────────────────────────────────
       - name: Collect build artifacts
