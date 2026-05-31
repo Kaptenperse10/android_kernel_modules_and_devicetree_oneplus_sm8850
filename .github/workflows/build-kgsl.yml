@@ -171,10 +171,10 @@ jobs:
           MSM_KERNEL=$(pwd)/kernel/msm-kernel
           # Merge msm-kernel headers into the kernel out include directory
           cp -rn $MSM_KERNEL/include/. kernel/out/include/ 2>/dev/null || true
-          # Show where Qualcomm headers are
-          echo "=== Qualcomm headers ==="
-          find $MSM_KERNEL/include -name "of_common.h" -o -name "mem-buf.h" -o -name "qcom-iommu-util.h" 2>/dev/null || true
-          find $MSM_KERNEL -name "mem-buf.h" 2>/dev/null | head -5 || true
+          # Find qcom_io_pgtable_info definition
+          echo "=== searching for qcom_io_pgtable_info ==="
+          grep -r "qcom_io_pgtable_info" $MSM_KERNEL --include="*.h" -l 2>/dev/null | head -10 || true
+          grep -r "qcom_io_pgtable_info" $(pwd)/kernel/common --include="*.h" -l 2>/dev/null | head -5 || true
           make -j$(nproc) \
             -C $KERNEL_SRC \
             M=$M \
