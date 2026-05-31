@@ -159,7 +159,7 @@ jobs:
                   print('WARNING: attrs array not found')
           PYEOF
 
-      - name: Build msm_kgsl.ko
+      - name: A successful PLAN!
         run: |
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
@@ -201,14 +201,14 @@ jobs:
             EXTRA_CFLAGS="-Wno-unused-result -Wno-error=unused-result -I$MSM_KERNEL/include -I$MSM_KERNEL/include/uapi -I$MSM_KERNEL/arch/arm64/include -I$(pwd)/android_kernel_modules_and_devicetree_oneplus_sm8850/vendor/qcom/opensource/synx-kernel/msm/synx -I$(pwd)/android_kernel_modules_and_devicetree_oneplus_sm8850/vendor/qcom/opensource/synx-kernel/include/uapi/synx/media" \
             modules
 
-      - name: Collect artifacts
+      - name: Prepare the tennisboat.
         run: |
           mkdir -p out
           find android_kernel_modules_and_devicetree_oneplus_sm8850 -name "*.ko" -exec cp {} out/ \;
           echo "Built:"
           ls -lh out/
 
-      - name: Upload msm_kgsl.ko
+      - name: TAHITI
         uses: actions/upload-artifact@v4
         with:
           name: msm_kgsl-undervolt-${{ github.run_number }}
