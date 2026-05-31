@@ -159,7 +159,7 @@ jobs:
                   print('WARNING: attrs array not found')
           PYEOF
 
-      - name: Stop gooning to BBC.
+      - name: Build msm_kgsl.ko
         run: |
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
@@ -169,8 +169,10 @@ jobs:
           export M=$(pwd)/android_kernel_modules_and_devicetree_oneplus_sm8850/vendor/qcom/opensource/graphics-kernel
 
           MSM_KERNEL=$(pwd)/kernel/msm-kernel
-          # Merge msm-kernel headers into the kernel out include directory
+          # Merge ALL msm-kernel headers into kernel out include directory
           cp -rn $MSM_KERNEL/include/. kernel/out/include/ 2>/dev/null || true
+          # Also copy into common include so the compiler finds them via standard paths
+          cp -rn $MSM_KERNEL/include/. kernel/common/include/ 2>/dev/null || true
           # Find qcom_io_pgtable_info definition
           echo "=== searching for qcom_io_pgtable_info ==="
           grep -r "qcom_io_pgtable_info" $MSM_KERNEL --include="*.h" -l 2>/dev/null | head -10 || true
