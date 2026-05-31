@@ -173,6 +173,8 @@ jobs:
             M=$M \
             ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- \
+            CC=aarch64-linux-gnu-gcc \
+            HOSTCC=gcc \
             KGSL_PATH=$M \
             BOARD_PLATFORM=sun \
             CONFIG_QCOM_KGSL=m \
