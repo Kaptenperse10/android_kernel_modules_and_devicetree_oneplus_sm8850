@@ -159,7 +159,7 @@ jobs:
                   print('WARNING: attrs array not found')
           PYEOF
 
-      - name: Talk to a girl.
+      - name: Build msm_kgsl.ko
         run: |
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
@@ -168,6 +168,11 @@ jobs:
           export KERNEL_SRC=$(pwd)/kernel/out
           export M=$(pwd)/android_kernel_modules_and_devicetree_oneplus_sm8850/vendor/qcom/opensource/graphics-kernel
 
+          MSM_KERNEL=$(pwd)/kernel/msm-kernel
+          # Show where Qualcomm headers are
+          echo "=== Qualcomm headers ==="
+          find $MSM_KERNEL/include -name "of_common.h" -o -name "mem-buf.h" -o -name "qcom-iommu-util.h" 2>/dev/null || true
+          find $MSM_KERNEL -name "mem-buf.h" 2>/dev/null | head -5 || true
           make -j$(nproc) \
             -C $KERNEL_SRC \
             M=$M \
@@ -179,6 +184,7 @@ jobs:
             BOARD_PLATFORM=sun \
             CONFIG_QCOM_KGSL=m \
             CONFIG_ARCH_NIOBE=y \
+            EXTRA_CFLAGS="-I$MSM_KERNEL/include -I$MSM_KERNEL/techpack/camera/include" \
             modules
 
       - name: Collect artifacts
