@@ -47,15 +47,12 @@ jobs:
 
       - name: Build kernel to get Module.symvers
         run: |
-          cd kernel/msm-kernel
+          cd kernel/common
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           # Search both msm-kernel and common for defconfig
-          echo "=== msm-kernel configs ==="
+          echo "=== available configs ==="
           ls arch/arm64/configs/ 2>/dev/null || true
-          echo "=== common configs ==="
-          ls ../common/arch/arm64/configs/ 2>/dev/null | grep -i "sun\|8850\|niobe\|gki" || true
-          # Try msm-kernel first, then common
           CFG=""
           for c in \
             vendor/sun_GKI_defconfig sun_GKI_defconfig \
@@ -64,19 +61,13 @@ jobs:
             gki_defconfig; do
             if [ -f "arch/arm64/configs/$c" ]; then
               CFG=$c
-              echo "Found in msm-kernel: $CFG"
-              break
-            elif [ -f "../common/arch/arm64/configs/$c" ]; then
-              cp ../common/arch/arm64/configs/$c arch/arm64/configs/
-              CFG=$c
-              echo "Copied from common: $CFG"
+              echo "Found: $CFG"
               break
             fi
           done
           if [ -z "$CFG" ]; then
             echo "ERROR: no suitable defconfig found"
-            echo "msm-kernel configs:" && ls arch/arm64/configs/
-            echo "common configs:" && ls ../common/arch/arm64/configs/ | head -20
+            ls arch/arm64/configs/
             exit 1
           fi
           make O=../out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- $CFG
