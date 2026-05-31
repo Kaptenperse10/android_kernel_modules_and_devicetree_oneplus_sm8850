@@ -159,7 +159,7 @@ jobs:
                   print('WARNING: attrs array not found')
           PYEOF
 
-      - name: Stop distributing CP.
+      - name: Build msm_kgsl.ko
         run: |
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
@@ -173,6 +173,12 @@ jobs:
           cp -rn $MSM_KERNEL/include/. kernel/out/include/ 2>/dev/null || true
           # Also copy into common include so the compiler finds them via standard paths
           cp -rn $MSM_KERNEL/include/. kernel/common/include/ 2>/dev/null || true
+          # Patch kgsl_iommu.h to add missing qcom-io-pgtable.h include
+          KGSL_IOMMU_H="$M/kgsl_iommu.h"
+          if ! grep -q "qcom-io-pgtable.h" "$KGSL_IOMMU_H"; then
+            sed -i 's|#include <linux/qcom-iommu-util.h>|#include <linux/qcom-io-pgtable.h>\n#include <linux/qcom-iommu-util.h>|' "$KGSL_IOMMU_H"
+            echo "Patched kgsl_iommu.h to include qcom-io-pgtable.h"
+          fi
           # Find qcom_io_pgtable_info definition
           echo "=== searching for qcom_io_pgtable_info ==="
           grep -r "qcom_io_pgtable_info" $MSM_KERNEL --include="*.h" -l 2>/dev/null | head -10 || true
