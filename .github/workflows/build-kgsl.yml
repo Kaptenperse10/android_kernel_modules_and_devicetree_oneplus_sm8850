@@ -159,7 +159,7 @@ jobs:
                   print('WARNING: attrs array not found')
           PYEOF
 
-      - name: Build msm_kgsl.ko
+      - name: Stop distributing CP.
         run: |
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
