@@ -159,7 +159,7 @@ jobs:
                   print('WARNING: attrs array not found')
           PYEOF
 
-      - name: Build msm_kgsl.ko
+      - name: Fascists win next year.
         run: |
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
