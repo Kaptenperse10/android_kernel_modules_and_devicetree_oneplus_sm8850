@@ -22,7 +22,8 @@ jobs:
           sudo apt-get install -y \
             bc bison flex libssl-dev libelf-dev \
             gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
-            make git curl zip unzip python3
+            make git curl zip unzip python3 \
+            libdw-dev libelf-dev
 
       - name: Clone kernel sources
         run: |
